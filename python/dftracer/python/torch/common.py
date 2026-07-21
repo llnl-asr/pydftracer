@@ -1,6 +1,12 @@
 from typing import Any
 
-from dftracer.python.common import TagDType, TagType, TagValue, get_time_scale
+from dftracer.python.common import (
+    _TIME_METRIC_UNITS_PER_SECOND,
+    TagDType,
+    TagType,
+    TagValue,
+    get_time_scale,
+)
 
 dftracer = None  # type: ignore
 
@@ -10,34 +16,22 @@ def trace_handler(profiler_result: Any) -> None:
     global dftracer
     events = profiler_result.events()
 
-    # event.time_range.start/end are PyTorch-profiler-relative MICROSECONDS
-    # (kineto_event.start_ns() - trace_start_ns, see torch/autograd/profiler.py),
-    # i.e. near-zero offsets from when this profiler session started — NOT the
-    # same clock/unit as dftracer.get_instance().get_time(), which is
-    # wall-clock time in whatever DFTRACER_TIME_METRIC selects (default
-    # microseconds, but NS/MS/SEC are all valid) and is what every other
-    # event category is logged in. Logging the raw relative value here
-    # plants "PP" events near time 0, on the wrong unit besides, while the
-    # rest of the trace sits at the real epoch — they show up as a separate
-    # island far outside the run's actual timeline.
-    #
-    # trace_start_ns() is kineto's own absolute epoch-NANOSECOND timestamp
-    # for this profiler session's relative zero point. get_time_scale()
-    # reports dftracer's current units-per-second (from DFTRACER_TIME_METRIC)
-    # so both the anchor and each relative offset can be converted into
-    # dftracer's own clock/unit generically, whatever it's configured to be.
     scale = get_time_scale()  # dftracer time units per second
-    trace_start_ns = profiler_result.profiler.kineto_results.trace_start_ns()
-    trace_start_dft = trace_start_ns * scale / 1e9
-    us_to_dft = scale / 1e6  # dftracer time units per PyTorch-profiler microsecond
+    # NOTE: we need to have start time to align the time properly
+    dft_time = dftracer.get_instance().start_time  # type: ignore
+    us_to_dft = (
+        scale / _TIME_METRIC_UNITS_PER_SECOND["US"]
+    )  # dftracer time units per PyTorch-profiler microsecond
 
     # Print attributes for each event
     dftracer.get_instance().enter_event()  # type: ignore
     for _i, event in enumerate(events):
         # Extract kernel name from event.key
         key = event.key
-        # Check available attributes of time_range
-        start_time = int(trace_start_dft + event.time_range.start * us_to_dft)
+        # NOTE: event.time_range.start is in microseconds, so we need to convert it to dftracer time units
+        #       event.time_range.start is relative to pytorch profiler trace start time
+        #       event.time docs: https://docs.pytorch.org/docs/2.13/generated/torch.autograd.profiler_util.FunctionEvent.html#torch.autograd.profiler_util.FunctionEvent
+        start_time = int(event.time_range.start * us_to_dft + dft_time)
         duration = int(event.time_range.elapsed_us() * us_to_dft)
         int_args = {}
         int_args["device"] = TagValue(
