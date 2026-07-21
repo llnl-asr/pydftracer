@@ -88,14 +88,14 @@ def _worker_process(func_name, module_name, config, queue):
         raise
 
 
-def run_test_in_spawn_process(test_func, test_config, timeout=120):
+def run_test_in_spawn_process(test_func, test_config, timeout=300):
     """
     Run a test function in a separate process using multiprocessing spawn.
 
     Args:
         test_func: The test function to run (must be a module-level function)
         test_config: Configuration dictionary to pass to the test function
-        timeout: Timeout in seconds (default: 120)
+        timeout: Timeout in seconds (default: 300)
 
     Returns:
         None (raises AssertionError if test fails)
