@@ -217,7 +217,7 @@ class TestAILogging:
                 "name": "normal",
                 "num_files": 2,
                 "niter": 3,
-                "expected_events": 76,
+                "expected_events": 77,
                 "env": {
                     "DFTRACER_ENABLE": "1",
                     "DFTRACER_INC_METADATA": "1",
@@ -230,7 +230,7 @@ class TestAILogging:
                 "num_files": 2,
                 "niter": 3,
                 "epoch_as_metadata": True,
-                "expected_events": 76,
+                "expected_events": 77,
                 "env": {
                     "DFTRACER_ENABLE": "1",
                     "DFTRACER_INC_METADATA": "1",
@@ -257,7 +257,7 @@ class TestAILogging:
                 "num_files": 2,
                 "niter": 3,
                 "disable_ai_cat": "dataloader",
-                "expected_events": 61,
+                "expected_events": 62,
                 "env": {
                     "DFTRACER_ENABLE": "1",
                     "DFTRACER_INC_METADATA": "1",
@@ -270,7 +270,7 @@ class TestAILogging:
                 "num_files": 2,
                 "niter": 3,
                 "disable_ai_cat": "device",
-                "expected_events": 70,
+                "expected_events": 71,
                 "env": {
                     "DFTRACER_ENABLE": "1",
                     "DFTRACER_INC_METADATA": "1",
@@ -283,7 +283,7 @@ class TestAILogging:
                 "num_files": 2,
                 "niter": 3,
                 "disable_ai_cat": "compute",
-                "expected_events": 52,
+                "expected_events": 53,
                 "env": {
                     "DFTRACER_ENABLE": "1",
                     "DFTRACER_INC_METADATA": "1",
@@ -296,7 +296,7 @@ class TestAILogging:
                 "num_files": 2,
                 "niter": 3,
                 "disable_ai_cat": "ckpt",
-                "expected_events": 73,
+                "expected_events": 74,
                 "env": {
                     "DFTRACER_ENABLE": "1",
                     "DFTRACER_INC_METADATA": "1",
