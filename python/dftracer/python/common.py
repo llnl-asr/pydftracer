@@ -231,6 +231,7 @@ class dftracer:
     def __init__(self) -> None:
         self.logger: Optional[ProfilerProtocol] = None
         self.dbg_logging: Optional[logging.Logger] = None
+        self.start_time: int = 0
         dftracer.__instance = self
 
     @classmethod
@@ -282,6 +283,7 @@ class dftracer:
             instance.logger.initialize(
                 log_file=logfile, data_dirs=data_dir, process_id=process_id
             )
+            instance.start_time = instance.logger.get_time()
         return instance
 
     def get_time(self) -> int:

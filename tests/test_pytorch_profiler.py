@@ -11,7 +11,7 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 
-from .utils import run_test_in_spawn_process, suppress_output
+from .utils import run_test_in_spawn_process
 
 
 def get_profiler_activities(profiler_activity, device):
