@@ -511,7 +511,7 @@ def run_torchvision_cifar10_with_io_test(test_config):
     from dftracer.python.dbg import dft_fn as Profile
     from dftracer.python.dbg.torch import trace_handler
     from torch.profiler import ProfilerActivity, profile, record_function, schedule
-    from torchvision import datasets
+    from torch.utils.data import Dataset
 
     batch_size = test_config["batch_size"]
     num_epochs = test_config["num_epochs"]
@@ -534,59 +534,63 @@ def run_torchvision_cifar10_with_io_test(test_config):
     print(f"Log directory: {pfw_logs_dir}")
     print(f"Data directory: {data_dir}")
 
-    # Use the same pattern as test_dftracer.py - data_dir as second parameter
     df_logger = dftracer.initialize_log(log_file, data_dir, -1)
 
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {device}")
 
-        # Define transforms for CIFAR-10
-        transform = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
-                ),  # RGB normalization
-            ]
-        )
+        # Use a synthetic, CIFAR-10-shaped dataset (3x32x32, 10 classes)
+        import pickle
 
-        # Create custom CIFAR-10 dataset class with AI decorators for I/O tracing
-        class TracedCIFAR10Dataset(datasets.CIFAR10):
-            """CIFAR-10 dataset with dftracer AI decorators for I/O monitoring"""
+        import numpy as np
+
+        class SyntheticCIFAR10Dataset(Dataset):
+            """CIFAR-10-shaped synthetic dataset with dftracer AI decorators.
+
+            Writes one .pkl file per sample and reads it back in __getitem__ so
+            dftracer captures real POSIX/STDIO/FH I/O events, mirroring the
+            ImageFolder I/O test.
+            """
+
+            def __init__(self, data_dir, batch_size):
+                synthetic_data_dir = os.path.join(data_dir, "synthetic_data")
+                os.makedirs(synthetic_data_dir, exist_ok=True)
+
+                num_samples = max(batch_size * 6, 20)
+                self.sample_files = []
+                for i in range(num_samples):
+                    data_file = os.path.join(synthetic_data_dir, f"sample_{i}.pkl")
+                    sample_data = {
+                        "image": np.random.rand(3, 32, 32).astype(np.float32),
+                        "label": int(np.random.randint(0, 10)),
+                    }
+                    with open(data_file, "wb") as f:
+                        pickle.dump(sample_data, f)
+                    self.sample_files.append(data_file)
+
+                print(
+                    f"Created {len(self.sample_files)} synthetic CIFAR-10 data files "
+                    f"in {synthetic_data_dir}"
+                )
+
+            def __len__(self):
+                return len(self.sample_files)
 
             @ai.data.item
-            def __getitem__(self, index):
-                """Traced version of CIFAR-10 __getitem__ to capture I/O events"""
-                return super().__getitem__(index)
+            def __getitem__(self, idx):
+                """Read a sample from disk (generates traced I/O events)."""
+                with open(self.sample_files[idx], "rb") as f:
+                    sample_data = pickle.load(f)
+                image = torch.tensor(sample_data["image"], dtype=torch.float32)
+                label = torch.tensor(sample_data["label"], dtype=torch.long)
+                return image, label
 
-        # Use torchvision's CIFAR-10 dataset - this will trigger actual I/O operations
-        cifar10_data_dir = os.path.join(data_dir, "cifar-10")
-        print(f"Using CIFAR-10 dataset in: {cifar10_data_dir}")
-
-        try:
-            # Try to use cached CIFAR-10 data first, then download if needed
-            with suppress_output():
-                train_dataset = TracedCIFAR10Dataset(
-                    root=cifar10_data_dir,
-                    train=True,
-                    download=True,  # Download if not present
-                    transform=transform,
-                )
-            print(
-                f"Successfully loaded CIFAR-10 dataset with {len(train_dataset)} samples"
-            )
-        except Exception as e:
-            print(
-                f"Failed to load torchvision CIFAR-10 ({e}), falling back to synthetic data"
-            )
-            # Fallback to synthetic data if CIFAR-10 loading fails
-            from torch.utils.data import TensorDataset
-
-            num_samples = max(batch_size * 4, 32)
-            synthetic_data = torch.randn(num_samples, 3, 32, 32)
-            synthetic_labels = torch.randint(0, 10, (num_samples,))
-            train_dataset = TensorDataset(synthetic_data, synthetic_labels)
+        train_dataset = SyntheticCIFAR10Dataset(data_dir, batch_size)
+        print(
+            f"Successfully created synthetic CIFAR-10 dataset with "
+            f"{len(train_dataset)} samples"
+        )
 
         # Create a traced dataloader using AI decorators
         @ai.dataloader.fetch
@@ -1433,7 +1437,7 @@ class TestPyTorchProfiler:
         ],
     )
     def test_torchvision_cifar10_with_io_and_pp(self, test_config):
-        """Test PyTorch profiler with torchvision CIFAR-10 dataset including both I/O and PP events."""
+        """Test PyTorch profiler with synthetic CIFAR-10-shaped dataset including both I/O and PP events."""
         run_test_in_spawn_process(run_torchvision_cifar10_with_io_test, test_config)
 
     @pytest.mark.parametrize(
