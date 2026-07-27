@@ -14,6 +14,13 @@ dftracer = None  # type: ignore
 # 1. Custom Profiler Plugin (handler)
 def trace_handler(profiler_result: Any) -> None:
     global dftracer
+    # This is the function the app must pass as
+    # torch.profiler.profile(on_trace_ready=trace_handler): it only actually
+    # runs when torch's profiler invokes it with a real result, so marking
+    # here (unlike marking at module-import time) reflects genuine use. Called
+    # once per profiling step, but mark_used() is a cheap no-op after the
+    # first call.
+    dftracer.get_instance().mark_used("torch_profiler")  # type: ignore
     events = profiler_result.events()
 
     scale = get_time_scale()  # dftracer time units per second

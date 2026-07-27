@@ -368,6 +368,8 @@ class DFTracerAI(_DFTracerAI):
             image_size=image_size,
             enable=enable,
         )
+        if DFTRACER_ENABLE and enable:
+            dftracer.get_instance().mark_used("ai")
         self._children: Dict[str, DFTracerAI] = {}
 
     def create_children(self, names: Dict[str, str]) -> None:

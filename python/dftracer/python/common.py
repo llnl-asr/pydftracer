@@ -78,6 +78,22 @@ class ProfilerProtocol(Protocol):
         """Log a metadata event."""
         ...  # pragma: no cover
 
+    def set_app_metadata_int(self, key: str, value: int) -> None:
+        """Set process-global app metadata (int), folded into the trace's
+        end event at finalize."""
+        ...  # pragma: no cover
+
+    def set_app_metadata_string(self, key: str, value: str) -> None:
+        """Set process-global app metadata (string), folded into the
+        trace's end event at finalize."""
+        ...  # pragma: no cover
+
+    def mark_used(self, name: str) -> None:
+        """Report that a named sub-layer/integration (e.g. "torch_profiler",
+        "dynamo", "ai") was exercised this run, folded into the trace's end
+        event "used" object."""
+        ...  # pragma: no cover
+
     def finalize(self) -> None:
         """Finalize the profiler and release resources."""
         ...  # pragma: no cover
@@ -119,6 +135,15 @@ class NoOpProfiler:
         pass
 
     def log_metadata_event(self, key: str, value: str) -> None:
+        pass
+
+    def set_app_metadata_int(self, key: str, value: int) -> None:
+        pass
+
+    def set_app_metadata_string(self, key: str, value: str) -> None:
+        pass
+
+    def mark_used(self, name: str) -> None:
         pass
 
     def finalize(self) -> None:
@@ -232,6 +257,12 @@ class dftracer:
         self.logger: Optional[ProfilerProtocol] = None
         self.dbg_logging: Optional[logging.Logger] = None
         self.start_time: int = 0
+        # Names already reported to mark_used(), so hot call sites (e.g. one
+        # per function/region, one per profiler callback) pay a single
+        # `in`-check on a small local set instead of crossing into the
+        # pybind/C++ layer (mutex + set-insert) on every call after the
+        # first.
+        self._used_marks: set = set()
         dftracer.__instance = self
 
     @classmethod
@@ -284,6 +315,7 @@ class dftracer:
                 log_file=logfile, data_dirs=data_dir, process_id=process_id
             )
             instance.start_time = instance.logger.get_time()
+            instance.mark_used("python_function")
         return instance
 
     def get_time(self) -> int:
@@ -344,6 +376,27 @@ class dftracer:
             if self.dbg_logging:
                 self.dbg_logging.debug(f"logger.log_metadata_event {key} {value}")
             self.logger.log_metadata_event(key=key, value=value)
+
+    def set_app_metadata_int(self, key: str, value: int) -> None:
+        if DFTRACER_ENABLE and self.logger:
+            if self.dbg_logging:
+                self.dbg_logging.debug(f"logger.set_app_metadata_int {key} {value}")
+            self.logger.set_app_metadata_int(key, value)
+
+    def set_app_metadata_string(self, key: str, value: str) -> None:
+        if DFTRACER_ENABLE and self.logger:
+            if self.dbg_logging:
+                self.dbg_logging.debug(f"logger.set_app_metadata_string {key} {value}")
+            self.logger.set_app_metadata_string(key, value)
+
+    def mark_used(self, name: str) -> None:
+        if name in self._used_marks:
+            return
+        if DFTRACER_ENABLE and self.logger:
+            self._used_marks.add(name)
+            if self.dbg_logging:
+                self.dbg_logging.debug(f"logger.mark_used {name}")
+            self.logger.mark_used(name)
 
     def finalize(self) -> None:
         if DFTRACER_ENABLE and self.logger:

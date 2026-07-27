@@ -79,6 +79,8 @@ class Dynamo(DFTracerAI):
             image_size=image_size,
             enable=enable,
         )
+        if DFTRACER_ENABLE and enable:
+            dftracer.get_instance().mark_used("dynamo")
         self.call_stack: List[CallStackRecord] = []
 
     def reset(self) -> None:
