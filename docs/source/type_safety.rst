@@ -477,6 +477,6 @@ requirements without any compromises!
 
    If you have ideas for improving pydftracer's type safety—either in the public API or
    internal implementation—we'd love to hear from you! Please open an issue or discussion
-   on `GitHub <https://github.com/LLNL/pydftracer/issues>`_.
+   on `GitHub <https://github.com/llnl-asr/pydftracer/issues>`_.
 
 For more examples, see :doc:`examples` and :doc:`ai_ml_guide`.

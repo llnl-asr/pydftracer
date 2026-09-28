@@ -17,7 +17,7 @@ To install pydftracer for development:
 
 .. code-block:: bash
 
-   git clone https://github.com/LLNL/pydftracer.git
+   git clone https://github.com/llnl-asr/pydftracer.git
    cd pydftracer
    pip install -e ".[dev]"
 

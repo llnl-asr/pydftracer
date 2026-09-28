@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
-A lightweight, typed Python interface for [DFTracer](https://github.com/LLNL/dftracer). 
+A lightweight, typed Python interface for [DFTracer](https://github.com/llnl-asr/dftracer). 
 Ideal for prototyping, testing, and iterating on code that uses the DFTracer Python API before deploying the complete tracing stack.
 
 ## Purposes

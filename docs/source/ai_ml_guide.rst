@@ -19,7 +19,7 @@ Even when the intent is similar, the lack of a standard makes it hard to build a
 that work reliably across use cases.
 
 This API introduces consistent annotation conventions to help users instrument their code more uniformly.
-With these standards in place, tools like `DFAnalyzer <https://github.com/LLNL/dfanalyzer>`_ can
+With these standards in place, tools like `DFAnalyzer <https://github.com/llnl-asr/dfanalyzer>`_ can
 operate more effectively — they will *just work™*, reducing fatigue for researchers and
 developers analyzing AI/DL workloads.
 
