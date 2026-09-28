@@ -23,7 +23,7 @@ Clone the Repository
 
 .. code-block:: bash
 
-   pip install git+https://github.com/LLNL/dftracer.git --no-deps
+   pip install git+https://github.com/llnl-asr/dftracer.git --no-deps
    pip install ".[dev]"
 
 Create Development Environment
@@ -509,9 +509,9 @@ Creating a Release
 Resources
 ---------
 
-- **Main Repository**: https://github.com/LLNL/dftracer
-- **Issues**: https://github.com/LLNL/dftracer/issues
-- **DFAnalyzer**: https://github.com/LLNL/dfanalyzer
+- **Main Repository**: https://github.com/llnl-asr/dftracer
+- **Issues**: https://github.com/llnl-asr/dftracer/issues
+- **DFAnalyzer**: https://github.com/llnl-asr/dfanalyzer
 
 Getting Help
 ------------
@@ -519,7 +519,7 @@ Getting Help
 If you need help:
 
 1. Check the :doc:`quickstart` and :doc:`api/index`
-2. Search existing `GitHub Issues <https://github.com/LLNL/dftracer/issues>`_
+2. Search existing `GitHub Issues <https://github.com/llnl-asr/dftracer/issues>`_
 3. Contact the maintainers
 
 License

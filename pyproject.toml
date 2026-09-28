@@ -33,9 +33,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/LLNL/pydftracer"
-Repository = "https://github.com/LLNL/pydftracer"
-"Bug Tracker" = "https://github.com/LLNL/pydftracer/issues"
+Homepage = "https://github.com/llnl-asr/pydftracer"
+Repository = "https://github.com/llnl-asr/pydftracer"
+"Bug Tracker" = "https://github.com/llnl-asr/pydftracer/issues"
 Documentation = "https://dftracer.readthedocs.io/en/latest/"
 
 [project.optional-dependencies]
