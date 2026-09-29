@@ -2,10 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop, initialize, "feat/**", "fix/**", "chore/**", "perf/**" ]
+    branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test-and-lint:
