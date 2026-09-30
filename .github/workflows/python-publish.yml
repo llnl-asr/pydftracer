@@ -3,9 +3,24 @@ name: Upload Python Package
 on:
   release:
     types: [published]
+  # Every merge into develop publishes a <tag>.postN.dev0 prerelease.
+  push:
+    branches: [develop]
+    paths:
+      - 'python/**'
+      - 'setup.py'
+      - 'pyproject.toml'
+      - 'MANIFEST.in'
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# Serialise rather than cancel: cancelling mid-upload could leave a version
+# half published.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -13,18 +28,34 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # A develop push that lands exactly on a tag is a release: it is
+      # published through the release event, so the push run must not upload it.
+      - id: check
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && git describe --tags --exact-match --match 'v*' >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Set up Python
+        if: steps.check.outputs.publish == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install dependencies
+        if: steps.check.outputs.publish == 'true'
         run: |
           python -m pip install --upgrade pip
-          pip install build setuptools>=64 setuptools-scm>=8
+          pip install build "setuptools>=64" "setuptools-scm>=8"
       - name: Build package
+        if: steps.check.outputs.publish == 'true'
         run: |
           python -m build
+          ls dist
       - name: Publish package
+        if: steps.check.outputs.publish == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__

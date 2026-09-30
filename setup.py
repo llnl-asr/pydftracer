@@ -5,13 +5,12 @@ from setuptools import setup
 from setuptools_scm import ScmVersion
 
 
+# <last tag>.post<commits since tag>.dev0 between releases, so a develop
+# prerelease sorts after the tag and pip skips it without --pre.
 def myversion_func(version: ScmVersion) -> str:
-    from setuptools_scm.version import only_version
-
     if version.distance > 0:
-        return version.format_next_version(only_version, fmt="{tag}.dev{distance}")
-    else:
-        return version.format_next_version(only_version, fmt="{tag}")
+        return version.format_with("{tag}.post{distance}.dev0")
+    return version.format_with("{tag}")
 
 
 setup(use_scm_version={"version_scheme": myversion_func})

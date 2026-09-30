@@ -6,6 +6,7 @@ exclude coverage.xml
 exclude .coverage
 exclude dft.log
 prune tests
+prune scripts
 prune .github
 prune htmlcov
 prune .mypy_cache
