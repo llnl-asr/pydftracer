@@ -38,6 +38,21 @@ Tag Types
    :undoc-members:
    :show-inheritance:
 
+Entity Types
+~~~~~~~~~~~~
+
+.. autoclass:: dftracer.python.EntityStore
+   :members:
+   :undoc-members:
+
+.. autoclass:: dftracer.python.EntityRole
+   :members:
+   :undoc-members:
+
+.. autoclass:: dftracer.python.EntityRelation
+   :members:
+   :undoc-members:
+
 Profiler Protocol
 ~~~~~~~~~~~~~~~~~
 

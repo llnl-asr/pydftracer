@@ -4,7 +4,7 @@ import os
 import signal
 import sys
 from collections.abc import Iterable, Sequence
-from enum import Enum
+from enum import Enum, IntEnum
 from functools import wraps
 from pathlib import Path
 from typing import (
@@ -31,6 +31,50 @@ T = TypeVar("T")  # For generic iterator types
 
 # Type alias for TagValue return type
 TagValueTuple = Tuple[int, Union[int, float, str]]
+
+
+class EntityStore(IntEnum):
+    """Where an entity instance lives (mirrors core/common/entity.h)."""
+
+    MEMORY = 0
+    GPU_MEMORY = 1
+    LOCAL_DISK = 2
+    PARALLEL_FS = 3
+    BURST_BUFFER = 4
+    OBJECT_STORE = 5
+    DATABASE = 6
+    NETWORK = 7
+    OTHER = 8
+
+
+class EntityRole(IntEnum):
+    """Role of an entity type in the workflow."""
+
+    UNKNOWN = 0
+    INPUT = 1
+    OUTPUT = 2
+    INTERMEDIATE = 3
+    PARAMETER = 4
+    REFERENCE = 5
+
+
+class EntityRelation(IntEnum):
+    """Event->entity relations (< 16) and entity->entity relations (>= 16)."""
+
+    USED = 0
+    GENERATED = 1
+    INVALIDATED = 2
+    UPDATED = 3
+    DERIVED_FROM = 16
+    REVISION_OF = 17
+    CONTAINS = 18
+    PART_OF = 19
+    SPECIALIZATION_OF = 20
+    ALTERNATE_OF = 21
+    DEPENDS_ON = 22
+
+
+EntityID = int  # 64-bit id; 0 means "no entity" (tracing off)
 
 
 class ProfilerProtocol(Protocol):
@@ -70,12 +114,28 @@ class ProfilerProtocol(Protocol):
         int_args: Optional[Dict[str, TagValueTuple]] = None,
         string_args: Optional[Dict[str, TagValueTuple]] = None,
         float_args: Optional[Dict[str, TagValueTuple]] = None,
+        relations: Optional[Dict[Any, List[int]]] = None,
     ) -> None:
-        """Log a profiling event."""
+        """Log a profiling event. ``relations`` maps an EntityRelation to
+        entity ids from declare_entity."""
         ...  # pragma: no cover
 
     def log_metadata_event(self, key: str, value: str) -> None:
         """Log a metadata event."""
+        ...  # pragma: no cover
+
+    def declare_entity(self, type: str, key: str, store: Any, uri: str) -> EntityID:
+        """Declare an entity (type, key) once per process; return its id."""
+        ...  # pragma: no cover
+
+    def declare_entity_type(self, type: str, role: Any, description: str) -> None:
+        """Describe an entity type (role, description) once per process."""
+        ...  # pragma: no cover
+
+    def relate_entities(
+        self, relation: Any, subject: EntityID, object: EntityID
+    ) -> None:
+        """Relate two entities (entity->entity relation)."""
         ...  # pragma: no cover
 
     def set_app_metadata_int(self, key: str, value: int) -> None:
@@ -131,10 +191,22 @@ class NoOpProfiler:
         int_args: Optional[Dict[str, TagValueTuple]] = None,
         string_args: Optional[Dict[str, TagValueTuple]] = None,
         float_args: Optional[Dict[str, TagValueTuple]] = None,
+        relations: Optional[Dict[Any, List[int]]] = None,
     ) -> None:
         pass
 
     def log_metadata_event(self, key: str, value: str) -> None:
+        pass
+
+    def declare_entity(self, type: str, key: str, store: Any, uri: str) -> EntityID:
+        return 0
+
+    def declare_entity_type(self, type: str, role: Any, description: str) -> None:
+        pass
+
+    def relate_entities(
+        self, relation: Any, subject: EntityID, object: EntityID
+    ) -> None:
         pass
 
     def set_app_metadata_int(self, key: str, value: int) -> None:
@@ -355,12 +427,24 @@ class dftracer:
         int_args: Optional[Dict[str, TagValueTuple]] = None,
         float_args: Optional[Dict[str, TagValueTuple]] = None,
         string_args: Optional[Dict[str, TagValueTuple]] = None,
+        relations: Optional[Dict[EntityRelation, List[int]]] = None,
     ) -> None:
         if DFTRACER_ENABLE and self.logger:
             if self.dbg_logging:
                 self.dbg_logging.debug(
-                    f"logger.log_event {name} {cat} {start_time} {duration} int={int_args} str={string_args} float={float_args}"
+                    f"logger.log_event {name} {cat} {start_time} {duration} int={int_args} str={string_args} float={float_args} rel={relations}"
                 )
+            kwargs: Dict[str, Any] = {}
+            if relations:
+                # Older native modules have no relations kwarg; pass it only
+                # when there is something to relate. Keys are converted to the
+                # native EntityRelation enum.
+                native = self._native_enum("EntityRelation")
+                kwargs["relations"] = {
+                    (native(int(k)) if native else int(k)): v
+                    for k, v in relations.items()
+                    if v
+                }
             self.logger.log_event(
                 name=name,
                 cat=cat,
@@ -369,6 +453,7 @@ class dftracer:
                 int_args=int_args or {},
                 float_args=float_args or {},
                 string_args=string_args or {},
+                **kwargs,
             )
 
     def log_metadata_event(self, key: str, value: str) -> None:
@@ -376,6 +461,75 @@ class dftracer:
             if self.dbg_logging:
                 self.dbg_logging.debug(f"logger.log_metadata_event {key} {value}")
             self.logger.log_metadata_event(key=key, value=value)
+
+    # ---- entities and relations -------------------------------------------
+    # An entity is a typed instance (type, key) -> 64-bit EntityID computed by
+    # the native core (FNV-1a), identical in every language and process and
+    # recorded once per process. Events relate to entities by id with an
+    # EntityRelation (see dft_fn.uses / generates / relate); entities relate
+    # to each other with relate_entities. Strings are truncated and sanitized
+    # by the core (type 32, uri 256, description 256 characters).
+
+    def _native_enum(self, name: str) -> Any:
+        return getattr(self.logger, name, None) if self.logger else None
+
+    def _has(self, fn: str) -> bool:
+        return self._native(fn) is not None
+
+    def _native(self, fn: str) -> Optional[ProfilerProtocol]:
+        """The native module, if tracing is on and it carries `fn` -- older
+        wheels predate the entity API."""
+        logger = self.logger
+        if DFTRACER_ENABLE and logger is not None and hasattr(logger, fn):
+            return logger
+        return None
+
+    def declare_entity(
+        self,
+        type: str,
+        key: Any,
+        store: EntityStore = EntityStore.MEMORY,
+        uri: str = "",
+    ) -> EntityID:
+        """Declare (type, key) once per process; return its EntityID (0 when
+        tracing is off or the native module predates the entity API)."""
+        logger = self._native("declare_entity")
+        if logger is None:
+            return 0
+        native = self._native_enum("EntityStore")
+        return int(
+            logger.declare_entity(
+                type, str(key), native(int(store)) if native else int(store), uri or ""
+            )
+        )
+
+    def declare_entity_type(
+        self,
+        type: str,
+        role: EntityRole = EntityRole.UNKNOWN,
+        description: str = "",
+    ) -> None:
+        """Describe an entity type once per process: role and description."""
+        logger = self._native("declare_entity_type")
+        if logger is not None:
+            native = self._native_enum("EntityRole")
+            logger.declare_entity_type(
+                type, native(int(role)) if native else int(role), description or ""
+            )
+
+    def relate_entities(
+        self, relation: EntityRelation, subject: EntityID, object: EntityID
+    ) -> None:
+        """Relate two entities with an entity->entity relation (>= 16), e.g.
+        EntityRelation.CONTAINS or DERIVED_FROM."""
+        if int(relation) < 16 or not subject or not object:
+            return
+        logger = self._native("relate_entities")
+        if logger is not None:
+            native = self._native_enum("EntityRelation")
+            logger.relate_entities(
+                native(int(relation)) if native else int(relation), subject, object
+            )
 
     def set_app_metadata_int(self, key: str, value: int) -> None:
         if DFTRACER_ENABLE and self.logger:
@@ -430,6 +584,7 @@ class dft_fn:
         self._arguments_int: Dict[str, TagValueTuple] = {}
         self._arguments_float: Dict[str, TagValueTuple] = {}
         self._arguments_string: Dict[str, TagValueTuple] = {}
+        self._relations: Dict[EntityRelation, List[int]] = {}
         self._t1: int = 0
         self._t2: int = 0
         self._flush: bool = False
@@ -513,6 +668,48 @@ class dft_fn:
                         ).value()
         return self
 
+    # ---- relations to entities (see dftracer.declare_entity) --------------
+    def relate(self, relation: EntityRelation, entity: EntityID) -> "dft_fn":
+        """Relate this event to an entity id with an event relation (< 16)."""
+        if DFTRACER_ENABLE and self._enable and entity and int(relation) < 16:
+            self._relations.setdefault(EntityRelation(int(relation)), []).append(entity)
+        return self
+
+    def relate_entity(
+        self,
+        relation: EntityRelation,
+        type: str,
+        key: Any,
+        store: EntityStore = EntityStore.MEMORY,
+        uri: str = "",
+    ) -> EntityID:
+        """Declare (type, key) and relate it in one step; return its id."""
+        if not (DFTRACER_ENABLE and self._enable):
+            return 0
+        eid = dftracer.get_instance().declare_entity(type, key, store, uri)
+        self.relate(relation, eid)
+        return eid
+
+    def uses(
+        self,
+        type: str,
+        key: Any,
+        store: EntityStore = EntityStore.MEMORY,
+        uri: str = "",
+    ) -> EntityID:
+        """Provenance cause: this event consumed entity (type, key)."""
+        return self.relate_entity(EntityRelation.USED, type, key, store, uri)
+
+    def generates(
+        self,
+        type: str,
+        key: Any,
+        store: EntityStore = EntityStore.MEMORY,
+        uri: str = "",
+    ) -> EntityID:
+        """Provenance effect: this event produced entity (type, key)."""
+        return self.relate_entity(EntityRelation.GENERATED, type, key, store, uri)
+
     def flush(self) -> "dft_fn":
         if DFTRACER_ENABLE and self._enable:
             self._t2 = dftracer.get_instance().get_time()
@@ -524,6 +721,7 @@ class dft_fn:
                 int_args=self._arguments_int,
                 float_args=self._arguments_float,
                 string_args=self._arguments_string,
+                relations=self._relations,
             )
             dftracer.get_instance().exit_event()
             self._flush = True
@@ -535,6 +733,10 @@ class dft_fn:
             dftracer.get_instance().enter_event()
             self._t2 = self._t1
             self._flush = False
+            # Relations describe the event just finished, so a new event starts
+            # without them; otherwise a reused dft_fn reports the same entities
+            # again on every later event.
+            self._relations = {}
         return self
 
     @overload
