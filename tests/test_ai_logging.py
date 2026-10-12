@@ -3,12 +3,16 @@
 AI Logging Test Suite for dftracer
 """
 
+import glob
+import json
 import os
 import shutil
+from collections import Counter
 from dataclasses import dataclass
 from time import sleep
-from typing import Optional
+from typing import Dict, Optional
 
+import dftracer.python.ai_common as ai_common
 import numpy as np
 import pytest
 from dftracer.python import ai, dftracer
@@ -308,6 +312,123 @@ class TestAILogging:
     )
     def test_ai_logging(self, test_config):
         run_test_in_spawn_process(run_ai_logging_test, test_config)
+
+
+def count_events(log_file: str) -> Dict[str, int]:
+    counts: Dict[str, int] = Counter()
+    for path in glob.glob(log_file.replace(".pfw", "*.pfw")):
+        with open(path) as f:
+            for line in f:
+                line = line.strip().rstrip(",")
+                if not line.startswith("{"):
+                    continue
+                event = json.loads(line)
+                counts[event["name"]] += event.get("args", {}).get("dft_cnt", 1)
+    return counts
+
+
+def run_iter_count_test(test_config):
+    base_dir = os.path.join(os.path.dirname(__file__), "test_iter_count_output")
+    test_base_dir = os.path.join(base_dir, test_config["name"])
+    os.makedirs(test_base_dir, exist_ok=True)
+    log_file = os.path.join(test_base_dir, f"{test_config['name']}.pfw")
+    stop_after = test_config["stop_after"]
+
+    try:
+        df_logger = dftracer.initialize_log(
+            logfile=log_file, data_dir=test_base_dir, process_id=-1
+        )
+        for step in ai.dataloader.fetch.iter(range(test_config["num_items"])):
+            if step + 1 == stop_after:
+                break
+        df_logger.finalize()
+
+        counts = count_events(log_file)
+        if os.environ.get("DFTRACER_ENABLE") == "1" and counts:
+            assert counts["fetch.iter"] == test_config["expected_iters"], counts
+            assert counts["fetch.block"] == test_config["expected_iters"], counts
+    finally:
+        shutil.rmtree(test_base_dir, ignore_errors=True)
+
+    return True
+
+
+class TestAIIterCount:
+    @pytest.mark.parametrize(
+        "test_config",
+        [
+            {
+                "name": "iter_full",
+                "num_items": 5,
+                "stop_after": 0,
+                "expected_iters": 5,
+            },
+            {
+                "name": "iter_early_stop",
+                "num_items": 5,
+                "stop_after": 3,
+                "expected_iters": 2,
+            },
+        ],
+    )
+    def test_iter_count(self, test_config):
+        test_config["env"] = {
+            "DFTRACER_ENABLE": "1",
+            "DFTRACER_TRACE_COMPRESSION": "0",
+            "DFTRACER_DISABLE_IO": "1",
+        }
+        run_test_in_spawn_process(run_iter_count_test, test_config)
+
+
+class RecordingTracer:
+    def __init__(self) -> None:
+        self.open_scopes = 0
+        self.clock = 0
+
+    def get_instance(self) -> "RecordingTracer":
+        return self
+
+    def get_time(self) -> int:
+        self.clock += 1
+        return self.clock
+
+    def enter_event(self) -> None:
+        self.open_scopes += 1
+
+    def exit_event(self) -> None:
+        self.open_scopes -= 1
+
+    def log_event(self, **kwargs) -> None:
+        pass
+
+
+class TestAIIterScopes:
+    @pytest.fixture
+    def tracer(self, monkeypatch):
+        tracer = RecordingTracer()
+        monkeypatch.setattr(ai_common, "dftracer", tracer)
+        monkeypatch.setattr(ai_common, "DFTRACER_ENABLE", True)
+        return tracer
+
+    def test_full_loop(self, tracer):
+        assert list(ai.dataloader.fetch.iter(iter(range(3)))) == [0, 1, 2]
+        assert tracer.open_scopes == 0
+
+    def test_early_stop(self, tracer):
+        for step in ai.dataloader.fetch.iter(iter(range(5))):
+            if step == 2:
+                break
+        assert tracer.open_scopes == 0
+
+    def test_iterator_raises(self, tracer):
+        def broken():
+            yield 0
+            raise RuntimeError("fetch failed")
+
+        with pytest.raises(RuntimeError):
+            for _ in ai.dataloader.fetch.iter(broken()):
+                pass
+        assert tracer.open_scopes == 0
 
 
 class DataIOHandler:

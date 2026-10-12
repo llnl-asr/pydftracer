@@ -300,51 +300,57 @@ class _DFTracerAI:
         iter_val = 1
 
         start: int = 0
+        end: int = 0
+        t0: int = 0
+        scope_open = False
         if DFTRACER_ENABLE and self.profiler._enable:
             dftracer.get_instance().enter_event()
+            scope_open = True
             start = dftracer.get_instance().get_time()
 
-        for v in iterator:
-            if DFTRACER_ENABLE and self.profiler._enable:
-                end = dftracer.get_instance().get_time()
-                self.profiler._arguments_int[ITER_COUNT_NAME] = TagValue(
-                    iter_val, TagDType.INT, TagType.KEY
-                ).value()
-                if include_iter:
-                    dftracer.get_instance().log_event(
-                        name=iter_name,
-                        cat=self.profiler._cat,
-                        start_time=start,
-                        duration=end - start,
-                        int_args=self.profiler._arguments_int,
-                        float_args=self.profiler._arguments_float,
-                        string_args=self.profiler._arguments_string,
-                    )
+        try:
+            for v in iterator:
+                if DFTRACER_ENABLE and self.profiler._enable:
+                    end = dftracer.get_instance().get_time()
+                    dftracer.get_instance().exit_event()
+                    dftracer.get_instance().enter_event()
+                    t0 = dftracer.get_instance().get_time()
+
+                yield v
+
+                if DFTRACER_ENABLE and self.profiler._enable:
+                    t1 = dftracer.get_instance().get_time()
+                    self.profiler._arguments_int[ITER_COUNT_NAME] = TagValue(
+                        iter_val, TagDType.INT, TagType.KEY
+                    ).value()
+                    if include_iter:
+                        dftracer.get_instance().log_event(
+                            name=iter_name,
+                            cat=self.profiler._cat,
+                            start_time=start,
+                            duration=end - start,
+                            int_args=self.profiler._arguments_int,
+                            float_args=self.profiler._arguments_float,
+                            string_args=self.profiler._arguments_string,
+                        )
+                    if include_block:
+                        dftracer.get_instance().log_event(
+                            name=block_name,
+                            cat=self.profiler._cat,
+                            start_time=t0,
+                            duration=t1 - t0,
+                            int_args=self.profiler._arguments_int,
+                            float_args=self.profiler._arguments_float,
+                            string_args=self.profiler._arguments_string,
+                        )
+                    dftracer.get_instance().exit_event()
+
+                    iter_val += 1
+                    dftracer.get_instance().enter_event()
+                    start = dftracer.get_instance().get_time()
+        finally:
+            if scope_open:
                 dftracer.get_instance().exit_event()
-                dftracer.get_instance().enter_event()
-                t0 = dftracer.get_instance().get_time()
-
-            yield v
-
-            if DFTRACER_ENABLE and self.profiler._enable:
-                t1 = dftracer.get_instance().get_time()
-                if include_block:
-                    dftracer.get_instance().log_event(
-                        name=block_name,
-                        cat=self.profiler._cat,
-                        start_time=t0,
-                        duration=t1 - t0,
-                        int_args=self.profiler._arguments_int,
-                        float_args=self.profiler._arguments_float,
-                        string_args=self.profiler._arguments_string,
-                    )
-                dftracer.get_instance().exit_event()
-
-                iter_val += 1
-                dftracer.get_instance().enter_event()
-                start = dftracer.get_instance().get_time()
-        if DFTRACER_ENABLE and self.profiler._enable:
-            dftracer.get_instance().exit_event()
 
 
 class DFTracerAI(_DFTracerAI):
