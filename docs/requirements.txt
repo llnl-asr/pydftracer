@@ -3,3 +3,6 @@
 sphinx>=5.0
 sphinx-rtd-theme>=1.0
 myst-parser>=0.18
+# Imported by dftracer.python, but the package only declares it for Python < 3.10,
+# so install it here or autodoc cannot import the package and renders empty sections.
+typing_extensions>=4.0
