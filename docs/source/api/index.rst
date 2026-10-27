@@ -8,6 +8,7 @@ This section contains the complete API reference for pydftracer.
 
    core
    ai
+   agent
    dynamo
    env
 
@@ -35,6 +36,7 @@ AI/ML Support
 ~~~~~~~~~~~~~
 
 - ``DFTracerAI`` - Base class for AI/ML tracing
+- ``Agent`` - Base class for agent/workflow tracing
 - ``Dynamo`` - PyTorch Dynamo integration class
 - ``dynamo`` - Pre-configured Dynamo instance for tracing
 - ``create_backend`` - Create a custom torch.compile backend with DFTracer
@@ -58,5 +60,6 @@ Modules
 
 - :doc:`core` - Core tracing functionality (logger, common utilities)
 - :doc:`ai` - AI/ML specific tracing features
+- :doc:`agent` - Agent/workflow tracing features
 - :doc:`dynamo` - PyTorch Dynamo integration
 - :doc:`env` - Environment configuration and setup
