@@ -1,40 +1,11 @@
 import functools
-import sys
-from typing import Any, Callable, Dict, Iterator, List, Optional, overload
+from typing import Any, Callable, Dict, Iterator, Optional, overload
 
 from dftracer.python.common import *
 from dftracer.python.env import *
 
 dft_fn = None  # type: ignore
 dftracer = None  # type: ignore
-
-if sys.version_info >= (3, 11):
-    from enum import StrEnum as StringEnum
-    from enum import auto
-    # StrEnum in 3.11 already lower-case
-else:
-    from enum import Enum, auto
-
-    # MIT License: https://github.com/irgeek/StrEnum/blob/master/strenum/__init__.py
-    class StringEnum(str, Enum):
-        # this is a specific version that will lowercase the values
-
-        def __new__(cls, value: Any, *args: Any, **kwargs: Any) -> "StringEnum":
-            if not isinstance(value, (str, auto)):
-                raise TypeError(  # pragma: no cover
-                    f"Values of StrEnums must be strings: {value!r} is a {type(value)}"
-                )
-            return super().__new__(cls, value, *args, **kwargs)
-
-        def __str__(self) -> str:
-            return str(self.value)
-
-        @staticmethod
-        def _generate_next_value_(
-            name: str, start: int, count: int, last_values: List[Any]
-        ) -> str:
-            return name.lower()
-
 
 ITER_COUNT_NAME = "count"
 INIT_NAME = "init"
@@ -123,44 +94,16 @@ class _DFTracerAI:
         image_size: Optional[Any] = None,
         args: Optional[Dict[str, Any]] = None,
     ) -> Union[Callable[P, R], "DFTracerAI"]:
-        if epoch is not None:
-            self.profiler._arguments_int["epoch"] = TagValue(
-                epoch, TagDType.INT, TagType.KEY
-            ).value()
-        if step is not None:
-            self.profiler._arguments_int["step"] = TagValue(
-                step, TagDType.INT, TagType.KEY
-            ).value()
-        if image_idx is not None:
-            self.profiler._arguments_int["image_idx"] = TagValue(
-                image_idx, TagDType.INT, TagType.KEY
-            ).value()
-        if image_size is not None:
-            self.profiler._arguments_float["image_size"] = TagValue(
-                image_size, TagDType.FLOAT, TagType.KEY
-            ).value()
-        args = args or {}
-        for key, value in args.items():
-            if isinstance(value, TagValue):
-                new_value = value._value
-            else:
-                new_value = value
-            if isinstance(new_value, int):
-                self.profiler._arguments_int[key] = TagValue(
-                    new_value, TagDType.INT, TagType.KEY
-                ).value()
-            elif isinstance(new_value, float):
-                self.profiler._arguments_float[key] = TagValue(
-                    new_value, TagDType.FLOAT, TagType.KEY
-                ).value()
-            else:
-                self.profiler._arguments_string[key] = TagValue(
-                    str(new_value), TagDType.STRING, TagType.KEY
-                ).value()
-
         is_enabled = self.profiler._enable if enable is None else enable
 
         if fn:
+            self.update(
+                epoch=epoch,
+                step=step,
+                image_idx=image_idx,
+                image_size=image_size,
+                args=args,
+            )
 
             def _decorator(f: Callable[P, R]) -> Callable[P, R]:
                 @functools.wraps(f)
@@ -174,15 +117,25 @@ class _DFTracerAI:
 
             return _decorator(fn)
         else:
-            return DFTracerAI(
+            tracer = DFTracerAI(
                 cat=self.profiler._cat,
                 name=self.profiler._name,
+                enable=is_enabled,
+            )
+            if DFTRACER_ENABLE and tracer.profiler._enable:
+                tracer.profiler._arguments_int = dict(self.profiler._arguments_int)
+                tracer.profiler._arguments_float = dict(self.profiler._arguments_float)
+                tracer.profiler._arguments_string = dict(
+                    self.profiler._arguments_string
+                )
+            tracer.update(
                 epoch=epoch,
                 step=step,
                 image_idx=image_idx,
                 image_size=image_size,
-                enable=is_enabled,
+                args=args,
             )
+            return tracer
 
     def __enter__(self) -> "_DFTracerAI":
         self.profiler.__enter__()
@@ -266,6 +219,46 @@ class _DFTracerAI:
                 self.profiler._arguments_float["image_size"] = TagValue(
                     image_size, TagDType.FLOAT, TagType.KEY
                 ).value()
+            for key, value in args.items():
+                if isinstance(value, TagValue):
+                    new_value = value._value
+                else:
+                    new_value = value
+                if isinstance(new_value, int):
+                    self.profiler._arguments_int[key] = TagValue(
+                        new_value, TagDType.INT, TagType.KEY
+                    ).value()
+                elif isinstance(new_value, float):
+                    self.profiler._arguments_float[key] = TagValue(
+                        new_value, TagDType.FLOAT, TagType.KEY
+                    ).value()
+                else:
+                    self.profiler._arguments_string[key] = TagValue(
+                        str(new_value), TagDType.STRING, TagType.KEY
+                    ).value()
+        return self
+
+    def update_args(self, args: Dict[str, Any]) -> "_DFTracerAI":
+        """Update event arguments during span execution (e.g., token usage from LLM response).
+
+        This method allows adding or updating args after __enter__ but before __exit__,
+        which is useful for capturing metrics from API responses (like token counts).
+
+        Args:
+            args: Dictionary of argument names to values. Int, float, and str types are supported.
+
+        Returns:
+            self for chaining.
+
+        Example:
+            with llm.call(args={"model": "gpt-4"}) as span:
+                response = api.call()
+                span.update_args({
+                    "prompt_tokens": response["usage"]["prompt_tokens"],
+                    "completion_tokens": response["usage"]["completion_tokens"],
+                })
+        """
+        if DFTRACER_ENABLE and self.profiler._enable:
             for key, value in args.items():
                 if isinstance(value, TagValue):
                     new_value = value._value

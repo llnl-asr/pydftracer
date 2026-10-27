@@ -4,7 +4,7 @@ import os
 import signal
 import sys
 from collections.abc import Iterable, Sequence
-from enum import Enum, IntEnum
+from enum import Enum, IntEnum, auto
 from functools import wraps
 from pathlib import Path
 from typing import (
@@ -28,6 +28,36 @@ from typing_extensions import ParamSpec
 P = ParamSpec("P")  # For capturing function parameters
 R = TypeVar("R")  # For capturing function return types
 T = TypeVar("T")  # For generic iterator types
+
+
+# StrEnum for Python < 3.11, shared by the ai and agent namespaces.
+if sys.version_info >= (3, 11):
+    from enum import StrEnum as StringEnum
+    from enum import auto
+    # StrEnum in 3.11 already lower-case
+else:
+    from enum import Enum, auto
+
+    # MIT License: https://github.com/irgeek/StrEnum/blob/master/strenum/__init__.py
+    class StringEnum(str, Enum):
+        # this is a specific version that will lowercase the values
+
+        def __new__(cls, value: Any, *args: Any, **kwargs: Any) -> "StringEnum":
+            if not isinstance(value, (str, auto)):
+                raise TypeError(  # pragma: no cover
+                    f"Values of StrEnums must be strings: {value!r} is a {type(value)}"
+                )
+            return super().__new__(cls, value, *args, **kwargs)
+
+        def __str__(self) -> str:
+            return str(self.value)
+
+        @staticmethod
+        def _generate_next_value_(
+            name: str, start: int, count: int, last_values: List[Any]
+        ) -> str:
+            return name.lower()
+
 
 # Type alias for TagValue return type
 TagValueTuple = Tuple[int, Union[int, float, str]]

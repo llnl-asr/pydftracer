@@ -527,6 +527,15 @@ class TestAIModule:
         assert ProfileCategory.COMPUTE == "compute"
         assert ProfileCategory.DATA == "data"
 
+    def test_string_enum_has_one_definition(self):
+        """ai and agent share one StringEnum, defined in common."""
+        import dftracer.python.agent_common as agent_common
+        import dftracer.python.ai_common as ai_common
+        import dftracer.python.common as common
+
+        assert ai_common.StringEnum is common.StringEnum
+        assert agent_common.StringEnum is common.StringEnum
+
     def test_ai_start_stop_with_metadata(self):
         """Test start/stop methods with metadata enabled."""
 
