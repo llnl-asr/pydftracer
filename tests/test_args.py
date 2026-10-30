@@ -19,7 +19,13 @@ def logger():
     tracer = dftracer.get_instance()
     original = tracer.logger
     tracer.logger = MagicMock(
-        spec=["get_time", "enter_event", "exit_event", "log_event", "log_metadata_event"]
+        spec=[
+            "get_time",
+            "enter_event",
+            "exit_event",
+            "log_event",
+            "log_metadata_event",
+        ]
     )
     tracer.logger.get_time.return_value = 0
     try:
@@ -64,3 +70,8 @@ def test_metadata_fields_reach_the_logger(logger):
 def test_metadata_without_fields_is_unchanged(logger):
     dftracer.get_instance().log_metadata_event("epoch", "1")
     assert logger.log_metadata_event.call_args[1] == {"key": "epoch", "value": "1"}
+
+
+def test_dft_fn_log_metadata_reaches_the_logger(logger):
+    dft_fn("PY_APP", name="transform").log_metadata("step", "2")
+    assert logger.log_metadata_event.call_args[1] == {"key": "step", "value": "2"}

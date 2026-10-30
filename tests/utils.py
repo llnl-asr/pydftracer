@@ -1,3 +1,4 @@
+import gzip
 import os
 import sys
 from contextlib import contextmanager
@@ -236,16 +237,19 @@ def validate_log_files(log_file, test_name, expected_count=0, mode="exact"):
     DFTRACER_ENABLE = os.environ.get("DFTRACER_ENABLE", "0") == "1"
 
     if DFTRACER_ENABLE:
-        # Try different log file patterns
+        # Try different log file patterns. Newer dftracer always writes
+        # gzipped traces (.pfw.gz) and ignores DFTRACER_TRACE_COMPRESSION=0.
         log_pattern = log_file.replace(".pfw", "*-app.pfw")
-        log_files = glob.glob(log_pattern)
+        log_files = glob.glob(log_pattern) + glob.glob(log_pattern + ".gz")
 
         if not log_files and os.path.exists(log_file):
             log_files = [log_file]
 
         if not log_files:
             log_pattern_simple = log_file.replace(".pfw", "*.pfw")
-            log_files = glob.glob(log_pattern_simple)
+            log_files = glob.glob(log_pattern_simple) + glob.glob(
+                log_pattern_simple + ".gz"
+            )
 
         print(f"Looking for log files with pattern: {log_pattern}")
         print(f"Found log files: {log_files}")
@@ -253,7 +257,8 @@ def validate_log_files(log_file, test_name, expected_count=0, mode="exact"):
         for log_file_path in log_files:
             if os.path.exists(log_file_path):
                 try:
-                    with open(log_file_path) as f:
+                    opener = gzip.open if log_file_path.endswith(".gz") else open
+                    with opener(log_file_path, "rt") as f:
                         lines = f.readlines()
                         event_count += len(lines)
                     print(f"Found {len(lines)} events in {log_file_path}")
