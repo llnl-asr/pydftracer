@@ -219,8 +219,8 @@ class TestDftFnRelations:
         fn.flush()
 
         logger.log_event.assert_called_once()
-        relations = logger.log_event.call_args[1]["relations"]
-        assert [list(v) for v in relations.values()] == [[sample]]
+        lists = logger.log_event.call_args[1]["list_args"]
+        assert lists == {"relations": {"used": [f"{sample:016x}"]}}
 
     def test_context_manager_flushes_both_relations(self, logger):
         with dft_fn("PY_APP", name="transform") as fn:
@@ -228,10 +228,31 @@ class TestDftFnRelations:
             structure = fn.generates("protein_structure", "MGYP0001")
 
         logger.log_event.assert_called_once()
-        relations = logger.log_event.call_args[1]["relations"]
-        assert sorted(v for ids in relations.values() for v in ids) == sorted(
-            [sample, structure]
-        )
+        lists = logger.log_event.call_args[1]["list_args"]
+        assert lists == {
+            "relations": {
+                "used": [f"{sample:016x}"],
+                "generated": [f"{structure:016x}"],
+            }
+        }
+
+    def test_relations_fall_back_without_list_args(self, logger):
+        """A native module older than list_args gets the relations kwarg."""
+        calls = []
+
+        def log_event(**kwargs):
+            calls.append(kwargs)
+            if "list_args" in kwargs:
+                raise TypeError("unexpected keyword argument 'list_args'")
+
+        logger.log_event.side_effect = log_event
+        fn = dft_fn("PY_APP", name="transform")
+        sample = fn.uses("raw_sample", "sample-0")
+        fn.flush()
+
+        assert len(calls) == 2
+        assert "list_args" not in calls[1]
+        assert [list(v) for v in calls[1]["relations"].values()] == [[sample]]
 
     def test_reset_clears_relations(self, logger):
         fn = dft_fn("PY_APP", name="transform")

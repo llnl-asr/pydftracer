@@ -145,13 +145,18 @@ class ProfilerProtocol(Protocol):
         string_args: Optional[Dict[str, TagValueTuple]] = None,
         float_args: Optional[Dict[str, TagValueTuple]] = None,
         relations: Optional[Dict[Any, List[int]]] = None,
+        list_args: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Log a profiling event. ``relations`` maps an EntityRelation to
-        entity ids from declare_entity."""
+        entity ids from declare_entity; ``list_args`` maps a key to a list,
+        or to a dict of lists, of ints and strings."""
         ...  # pragma: no cover
 
-    def log_metadata_event(self, key: str, value: str) -> None:
-        """Log a metadata event."""
+    def log_metadata_event(
+        self, key: str, value: str = "", fields: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Log a metadata event: a key/value pair, or with ``fields`` a
+        metadata record named ``key`` holding them."""
         ...  # pragma: no cover
 
     def declare_entity(self, type: str, key: str, store: Any, uri: str) -> EntityID:
@@ -222,10 +227,13 @@ class NoOpProfiler:
         string_args: Optional[Dict[str, TagValueTuple]] = None,
         float_args: Optional[Dict[str, TagValueTuple]] = None,
         relations: Optional[Dict[Any, List[int]]] = None,
+        list_args: Optional[Dict[str, Any]] = None,
     ) -> None:
         pass
 
-    def log_metadata_event(self, key: str, value: str) -> None:
+    def log_metadata_event(
+        self, key: str, value: str = "", fields: Optional[Dict[str, Any]] = None
+    ) -> None:
         pass
 
     def declare_entity(self, type: str, key: str, store: Any, uri: str) -> EntityID:
@@ -458,24 +466,22 @@ class dftracer:
         float_args: Optional[Dict[str, TagValueTuple]] = None,
         string_args: Optional[Dict[str, TagValueTuple]] = None,
         relations: Optional[Dict[EntityRelation, List[int]]] = None,
+        list_args: Optional[Dict[str, Any]] = None,
     ) -> None:
         if DFTRACER_ENABLE and self.logger:
             if self.dbg_logging:
                 self.dbg_logging.debug(
-                    f"logger.log_event {name} {cat} {start_time} {duration} int={int_args} str={string_args} float={float_args} rel={relations}"
+                    f"logger.log_event {name} {cat} {start_time} {duration} int={int_args} str={string_args} float={float_args} rel={relations} lists={list_args}"
                 )
-            kwargs: Dict[str, Any] = {}
-            if relations:
-                # Older native modules have no relations kwarg; pass it only
-                # when there is something to relate. Keys are converted to the
-                # native EntityRelation enum.
-                native = self._native_enum("EntityRelation")
-                kwargs["relations"] = {
-                    (native(int(k)) if native else int(k)): v
-                    for k, v in relations.items()
-                    if v
-                }
-            self.logger.log_event(
+            # Relations are the list args.relations.<relation> of 16-hex ids.
+            lists: Dict[str, Any] = dict(list_args or {})
+            for rel, ids in (relations or {}).items():
+                if ids and int(rel) < 16:
+                    by_name = lists.setdefault("relations", {})
+                    by_name.setdefault(EntityRelation(int(rel)).name.lower(), []).extend(
+                        f"{int(i):016x}" for i in ids
+                    )
+            args: Dict[str, Any] = dict(
                 name=name,
                 cat=cat,
                 start_time=start_time,
@@ -483,14 +489,39 @@ class dftracer:
                 int_args=int_args or {},
                 float_args=float_args or {},
                 string_args=string_args or {},
-                **kwargs,
             )
+            if not lists:
+                self.logger.log_event(**args)
+                return
+            try:
+                self.logger.log_event(**args, list_args=lists)
+            except TypeError:
+                # A native module older than list_args: relations go as the
+                # relations kwarg, other lists are dropped.
+                if relations and hasattr(self.logger, "declare_entity"):
+                    native = self._native_enum("EntityRelation")
+                    args["relations"] = {
+                        (native(int(k)) if native else int(k)): v
+                        for k, v in relations.items()
+                        if v and int(k) < 16
+                    }
+                self.logger.log_event(**args)
 
-    def log_metadata_event(self, key: str, value: str) -> None:
+    def log_metadata_event(
+        self, key: str, value: str = "", fields: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """A key/value metadata event, or with ``fields`` ({name: int, float,
+        str, or a list / dict of lists}) a metadata record named ``key``
+        whose args are the fields, in order."""
         if DFTRACER_ENABLE and self.logger:
             if self.dbg_logging:
-                self.dbg_logging.debug(f"logger.log_metadata_event {key} {value}")
-            self.logger.log_metadata_event(key=key, value=value)
+                self.dbg_logging.debug(
+                    f"logger.log_metadata_event {key} {value} fields={fields}"
+                )
+            if fields:
+                self.logger.log_metadata_event(key=key, value=value, fields=fields)
+            else:
+                self.logger.log_metadata_event(key=key, value=value)
 
     # ---- entities and relations -------------------------------------------
     # An entity is a typed instance (type, key) -> 64-bit EntityID computed by
@@ -615,6 +646,7 @@ class dft_fn:
         self._arguments_float: Dict[str, TagValueTuple] = {}
         self._arguments_string: Dict[str, TagValueTuple] = {}
         self._relations: Dict[EntityRelation, List[int]] = {}
+        self._lists: Dict[str, Any] = {}
         self._t1: int = 0
         self._t2: int = 0
         self._flush: bool = False
@@ -698,6 +730,16 @@ class dft_fn:
                         ).value()
         return self
 
+    def append(self, key: str, value: Any, sub: Optional[str] = None) -> "dft_fn":
+        """Add ``value`` (int or str) to the list args.<key>, or with ``sub``
+        to args.<key>.<sub>; written with the event, in the order added."""
+        if DFTRACER_ENABLE and self._enable:
+            if sub is None:
+                self._lists.setdefault(key, []).append(value)
+            else:
+                self._lists.setdefault(key, {}).setdefault(sub, []).append(value)
+        return self
+
     # ---- relations to entities (see dftracer.declare_entity) --------------
     def relate(self, relation: EntityRelation, entity: EntityID) -> "dft_fn":
         """Relate this event to an entity id with an event relation (< 16)."""
@@ -752,6 +794,7 @@ class dft_fn:
                 float_args=self._arguments_float,
                 string_args=self._arguments_string,
                 relations=self._relations,
+                list_args=self._lists,
             )
             dftracer.get_instance().exit_event()
             self._flush = True
@@ -765,8 +808,9 @@ class dft_fn:
             self._flush = False
             # Relations describe the event just finished, so a new event starts
             # without them; otherwise a reused dft_fn reports the same entities
-            # again on every later event.
+            # again on every later event. The same holds for lists.
             self._relations = {}
+            self._lists = {}
         return self
 
     @overload
