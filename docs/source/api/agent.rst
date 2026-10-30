@@ -7,10 +7,8 @@ Agent Module
 ------------
 
 The ``agent`` module provides decorators and utilities for tracing agentic workflows.
-
-.. automodule:: dftracer.python.agent
-   :members:
-   :undoc-members:
+It re-exports everything documented below, and the same names are available from
+``dftracer.python``.
 
 Agent Categories
 ----------------

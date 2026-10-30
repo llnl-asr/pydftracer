@@ -15,10 +15,8 @@ AI Module
 ---------
 
 The ``ai`` module provides decorators and utilities for tracing AI/ML workflows.
-
-.. automodule:: dftracer.python.ai
-   :members:
-   :undoc-members:
+It re-exports everything documented below, and the same names are available from
+``dftracer.python``.
 
 AI Categories
 -------------
