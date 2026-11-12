@@ -15,6 +15,16 @@ Environment Variables
 .. autodata:: dftracer.python.DFTRACER_LOG_LEVEL
    :annotation: = "ERROR" | "WARN" | "INFO" | "DEBUG"
 
+``DFTRACER_ATTACH``
+~~~~~~~~~~~~~~~~~~~
+
+``DFTRACER_ATTACH=1`` tells ``dftracer.initialize_log`` that another owner already runs
+the tracing core of the process (moirai sets it when it is imported). ``initialize_log``
+then attaches to the running core instead of initializing it a second time, and
+``finalize`` leaves the core to its owner. Without the variable, or with
+``DFTRACER_ATTACH=0``, ``initialize_log`` and ``finalize`` behave as before. pydftracer
+reads only this variable; it does not look for the owner.
+
 Environment Variable Names
 --------------------------
 

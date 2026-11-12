@@ -288,6 +288,16 @@ def setup_logger(
     return logger
 
 
+def _core_owned_elsewhere() -> bool:
+    """True when DFTRACER_ATTACH=1: another owner (moirai) already runs the tracing core of this process.
+
+    A second initialize of the core breaks it (the process aborts at exit) and the decorators of an application that
+    also uses moirai then log nothing: attach to the running core instead. The owner sets DFTRACER_ATTACH=1 (moirai does
+    when it is imported); nothing is looked up here, the variable is the whole contract.
+    """
+    return os.getenv("DFTRACER_ATTACH", "") == "1"
+
+
 class dftracer:
     __instance: Optional["dftracer"] = None
 
@@ -295,6 +305,8 @@ class dftracer:
         self.logger: Optional[ProfilerProtocol] = None
         self.dbg_logging: Optional[logging.Logger] = None
         self.start_time: int = 0
+        # True when the core belongs to another owner (moirai): never initialize or finalize it from here.
+        self._attached: bool = False
         # Names already reported to mark_used(), so hot call sites (e.g. one
         # per function/region, one per profiler callback) pay a single
         # `in`-check on a small local set instead of crossing into the
@@ -346,12 +358,16 @@ class dftracer:
         )
         if DFTRACER_ENABLE:
             instance.logger = profiler
-            instance.dbg_logging.debug(
-                f"logger.initialize {logfile} {data_dir} {process_id}"
-            )
-            instance.logger.initialize(
-                log_file=logfile, data_dirs=data_dir, process_id=process_id
-            )
+            if _core_owned_elsewhere():
+                instance._attached = True
+                instance.dbg_logging.debug("logger.attach: the core is owned by moirai")
+            else:
+                instance.dbg_logging.debug(
+                    f"logger.initialize {logfile} {data_dir} {process_id}"
+                )
+                instance.logger.initialize(
+                    log_file=logfile, data_dirs=data_dir, process_id=process_id
+                )
             instance.start_time = instance.logger.get_time()
             instance.mark_used("python_function")
         return instance
@@ -456,10 +472,31 @@ class dftracer:
             self.logger.mark_used(name)
 
     def finalize(self) -> None:
+        if self._attached:
+            return  # the owner of the core (moirai) finalizes it
         if DFTRACER_ENABLE and self.logger:
             if self.dbg_logging:
                 self.dbg_logging.debug("logger.finalize")
             self.logger.finalize()
+
+
+def _argument_names(func: Callable) -> List[str]:
+    """The positional parameter names of func, or [] when it has no readable signature.
+
+    A function wrapped by functools.lru_cache or cache is a builtin object: getfullargspec raises TypeError on it,
+    and that used to stop the import of an application that stacks the decorator above a cached function.
+    """
+    try:
+        return list(inspect.getfullargspec(func)[0])
+    except (TypeError, ValueError):
+        try:
+            return [
+                n
+                for n, p in inspect.signature(func).parameters.items()
+                if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+            ]
+        except (TypeError, ValueError):
+            return []
 
 
 def get_default_args(func: Callable) -> Dict[str, Any]:
@@ -628,7 +665,7 @@ class dft_fn:
             _name = name if name else f.__qualname__
             arg_names: List[str] = []
             if DFTRACER_ENABLE and self._enable:
-                arg_names = inspect.getfullargspec(f)[0]
+                arg_names = _argument_names(f)
                 self._arguments_int = {}
                 self._arguments_float = {}
                 self._arguments_string = {}
